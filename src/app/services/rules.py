@@ -33,7 +33,7 @@ def _coerce_datetime(path: Path, metadata: MediaMetadata) -> datetime:
 def _safe_component(value: str) -> str:
     """Return a filesystem-safe component."""
 
-    return value.replace(Path.sep, "_")
+    return value.replace("/", "_").replace("\\", "_")
 
 
 def _format_resolution(metadata: MediaMetadata) -> str:
