@@ -9,6 +9,7 @@ import typer
 from pydantic import BaseModel, Field
 
 from app.services.metadata import MetadataReader
+from app.services.metadata_cache import MetadataCache
 from app.services.organizer import Organizer
 from app.services.rules import RuleEngine
 from app.services.scanner import VIDEO_EXTENSIONS
@@ -63,7 +64,7 @@ def organize(
         folder_template=folder_template,
         filename_template=filename_template,
     )
-    organizer = Organizer(rule_engine=rule_engine, metadata_reader=MetadataReader())
+    organizer = Organizer(rule_engine=rule_engine, metadata_reader=MetadataReader(cache=MetadataCache()))
 
     media_paths = [
         path

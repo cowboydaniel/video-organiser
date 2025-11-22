@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+from .metadata_cache import MetadataCache, Signature
+
 
 @dataclass(slots=True)
 class MediaMetadata:
@@ -34,9 +36,10 @@ class MetadataReader:
     back to ``mediainfo`` when FFmpeg tools are unavailable.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, cache: MetadataCache | None = None) -> None:
         self._ffprobe_path = shutil.which("ffprobe")
         self._mediainfo_path = shutil.which("mediainfo")
+        self.cache = cache
 
     def read(self, path: Path) -> MediaMetadata:
         """Return a :class:`MediaMetadata` instance for ``path``.
@@ -48,17 +51,28 @@ class MetadataReader:
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(path)
 
+        signature = self._signature(path)
+
+        if self.cache:
+            cached = self.cache.get(path, signature)
+            if cached:
+                return cached
+
         if self._ffprobe_path:
             metadata = self._read_with_ffprobe(path)
             if metadata:
+                self._persist(path, signature, metadata)
                 return metadata
 
         if self._mediainfo_path:
             metadata = self._read_with_mediainfo(path)
             if metadata:
+                self._persist(path, signature, metadata)
                 return metadata
 
-        return MediaMetadata(duration=None, resolution=None, codec=None, tags={})
+        metadata = MediaMetadata(duration=None, resolution=None, codec=None, tags={})
+        self._persist(path, signature, metadata)
+        return metadata
 
     def _read_with_ffprobe(self, path: Path) -> MediaMetadata | None:
         try:
@@ -139,3 +153,12 @@ class MetadataReader:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _signature(path: Path) -> Signature:
+        stat = path.stat()
+        return (stat.st_mtime_ns, stat.st_size)
+
+    def _persist(self, path: Path, signature: Signature, metadata: MediaMetadata) -> None:
+        if self.cache:
+            self.cache.set(path, signature, metadata)

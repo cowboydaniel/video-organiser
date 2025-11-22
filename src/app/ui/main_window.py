@@ -8,8 +8,10 @@ from typing import Dict, Iterable, List, Sequence
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..services.metadata import MetadataReader
+from ..services.metadata_cache import MetadataCache
 from ..services.organizer import Organizer
 from ..services.rules import RuleEngine
+from ..services.settings import SettingsManager
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".flv", ".wmv"}
@@ -97,11 +99,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1000, 700)
         self.setWindowIcon(self._load_icon("video.svg"))
 
-        self.metadata_reader = MetadataReader()
+        self.settings_manager = SettingsManager()
+        self.metadata_reader = MetadataReader(cache=MetadataCache())
+        self._theme = self.settings_manager.settings.theme
 
         self.model = VideoTableModel()
 
         self._setup_ui()
+        self._apply_settings()
         self._apply_style()
         self._connect_signals()
 
@@ -200,10 +205,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.organize_action.triggered.connect(self._organize_selection)
         self.table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # type: ignore[override]
+        self._persist_settings()
+        super().closeEvent(event)
+
     def _select_directory(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Select video directory", self.directory_input.text())
         if directory:
             self.directory_input.setText(directory)
+            self.settings_manager.update_last_directory(Path(directory))
             self._load_videos()
 
     def _load_videos(self) -> None:
@@ -211,6 +221,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not directory.exists() or not directory.is_dir():
             QtWidgets.QMessageBox.warning(self, "Directory not found", "Please select a valid directory containing video files.")
             return
+
+        self.settings_manager.update_last_directory(directory)
 
         video_files = [
             self._make_video_item(path)
@@ -358,16 +370,43 @@ class MainWindow(QtWidgets.QMainWindow):
     def _finish_progress(self) -> None:
         self.progress_bar.setVisible(False)
 
+    def _apply_settings(self) -> None:
+        settings = self.settings_manager.settings
+        if settings.last_directory:
+            self.directory_input.setText(settings.last_directory)
+        presets = settings.rule_presets
+        self.output_input.setText(presets.destination_root)
+        self.folder_template_input.setText(presets.folder_template)
+        self.filename_template_input.setText(presets.filename_template)
+        self._theme = settings.theme
+
     def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QWidget { font-size: 12px; }
-            QLineEdit { padding: 6px; }
-            QPushButton { padding: 6px 12px; }
-            QTableView::item:selected { background-color: #4a90e2; color: white; }
-            QHeaderView::section { padding: 6px; background: #f0f0f0; }
-            """
+        if self._theme == "dark":
+            palette = (
+                "QWidget { background-color: #1e1e1e; color: #f0f0f0; font-size: 12px; }"
+                "QLineEdit { padding: 6px; background-color: #2a2a2a; border: 1px solid #3a3a3a; }"
+                "QPushButton { padding: 6px 12px; background-color: #333333; }"
+                "QTableView::item:selected { background-color: #4a90e2; color: white; }"
+                "QHeaderView::section { padding: 6px; background: #2d2d2d; }"
+            )
+        else:
+            palette = (
+                "QWidget { font-size: 12px; }"
+                "QLineEdit { padding: 6px; }"
+                "QPushButton { padding: 6px 12px; }"
+                "QTableView::item:selected { background-color: #4a90e2; color: white; }"
+                "QHeaderView::section { padding: 6px; background: #f0f0f0; }"
+            )
+        self.setStyleSheet(palette)
+
+    def _persist_settings(self) -> None:
+        self.settings_manager.update_rule_presets(
+            destination_root=self.output_input.text(),
+            folder_template=self.folder_template_input.text(),
+            filename_template=self.filename_template_input.text(),
         )
+        self.settings_manager.update_last_directory(Path(self.directory_input.text()) if self.directory_input.text() else None)
+        self.settings_manager.set_theme(self._theme)
 
     def _load_icon(self, name: str) -> QtGui.QIcon:
         assets_dir = Path(__file__).resolve().parent.parent / "assets"
