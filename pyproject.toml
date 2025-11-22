@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "src/"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src"]
+known_first_party = ["app", "tools"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict = true
+mypy_path = ["src"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
