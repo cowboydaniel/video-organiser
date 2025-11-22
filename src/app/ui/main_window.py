@@ -3,9 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Dict, Iterable, List, Sequence
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from ..services.metadata import MetadataReader
+from ..services.organizer import Organizer
+from ..services.rules import RuleEngine
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".flv", ".wmv"}
@@ -93,6 +97,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1000, 700)
         self.setWindowIcon(self._load_icon("video.svg"))
 
+        self.metadata_reader = MetadataReader()
+
         self.model = VideoTableModel()
 
         self._setup_ui()
@@ -113,6 +119,24 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.addWidget(self.directory_input)
         controls_layout.addWidget(self.browse_button)
         controls_layout.addWidget(self.load_button)
+
+        rule_group = QtWidgets.QGroupBox("Rules")
+        rule_layout = QtWidgets.QGridLayout(rule_group)
+        self.output_input = QtWidgets.QLineEdit(str(Path.home() / "Videos" / "Organized"))
+        self.folder_template_input = QtWidgets.QLineEdit("{date:%Y/%m}")
+        self.filename_template_input = QtWidgets.QLineEdit("{name}_{resolution}")
+        self.tags_input = QtWidgets.QLineEdit()
+        self.tags_input.setPlaceholderText("project=demo, location=home")
+        self.copy_checkbox = QtWidgets.QCheckBox("Copy instead of move")
+        rule_layout.addWidget(QtWidgets.QLabel("Output folder"), 0, 0)
+        rule_layout.addWidget(self.output_input, 0, 1)
+        rule_layout.addWidget(QtWidgets.QLabel("Folder template"), 1, 0)
+        rule_layout.addWidget(self.folder_template_input, 1, 1)
+        rule_layout.addWidget(QtWidgets.QLabel("Filename template"), 2, 0)
+        rule_layout.addWidget(self.filename_template_input, 2, 1)
+        rule_layout.addWidget(QtWidgets.QLabel("Custom tags"), 3, 0)
+        rule_layout.addWidget(self.tags_input, 3, 1)
+        rule_layout.addWidget(self.copy_checkbox, 4, 0, 1, 2)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.table_view = QtWidgets.QTableView()
@@ -138,21 +162,42 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.setStretchFactor(1, 2)
 
         actions_layout = QtWidgets.QHBoxLayout()
+        self.preview_button = QtWidgets.QPushButton("Preview")
+        self.preview_button.setIcon(self._load_icon("organize.svg"))
         self.organize_button = QtWidgets.QPushButton("Organize")
         self.organize_button.setIcon(self._load_icon("organize.svg"))
         actions_layout.addStretch(1)
+        actions_layout.addWidget(self.preview_button)
         actions_layout.addWidget(self.organize_button)
 
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(1)
+        self.progress_bar.setValue(0)
+
+        bottom_layout = QtWidgets.QVBoxLayout()
+        bottom_layout.addLayout(actions_layout)
+        bottom_layout.addWidget(self.progress_bar)
+
         main_layout.addLayout(controls_layout)
+        main_layout.addWidget(rule_group)
         main_layout.addWidget(splitter)
-        main_layout.addLayout(actions_layout)
+        main_layout.addLayout(bottom_layout)
 
         self.setCentralWidget(central_widget)
+
+        organizer_menu = self.menuBar().addMenu("Organizer")
+        self.preview_action = organizer_menu.addAction("Preview rules")
+        self.organize_action = organizer_menu.addAction("Run organizer")
 
     def _connect_signals(self) -> None:
         self.browse_button.clicked.connect(self._select_directory)
         self.load_button.clicked.connect(self._load_videos)
+        self.preview_button.clicked.connect(self._preview_selection)
         self.organize_button.clicked.connect(self._organize_selection)
+        self.preview_action.triggered.connect(self._preview_selection)
+        self.organize_action.triggered.connect(self._organize_selection)
         self.table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
     def _select_directory(self) -> None:
@@ -168,7 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         video_files = [
-            VideoItem(path=path)
+            self._make_video_item(path)
             for path in directory.iterdir()
             if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
         ]
@@ -194,20 +239,124 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_label.setText(item.status)
 
     def _organize_selection(self) -> None:
-        selection = self.table_view.selectionModel().selectedRows()
-        rows = [index.row() for index in selection]
-        if not rows:
+        items = self._selected_items()
+        if not items:
             QtWidgets.QMessageBox.information(self, "No selection", "Please select a video to organize.")
             return
-        self.model.update_status(rows, "Organized")
-        if item := self.model.item_at(rows[0]):
-            self.status_label.setText(item.status)
+
+        organizer = self._build_organizer()
+        plans = organizer.preview([item.path for item in items], self._parse_custom_tags())
+        if not plans:
+            QtWidgets.QMessageBox.information(self, "Organizer", "No destinations were generated.")
+            return
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm organize",
+            f"Apply rules to {len(plans)} file(s) and {'copy' if self.copy_checkbox.isChecked() else 'move'} them?",
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        self._start_progress(len(plans))
+
+        def _progress(processed: int, total: int) -> None:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(processed)
+
+        reports = organizer.commit(
+            plans,
+            copy_files=self.copy_checkbox.isChecked(),
+            progress_callback=_progress,
+        )
+
+        failed = [report for report in reports if not report.success]
+        if failed:
+            errors = "\n".join(f"{r.plan.source.name}: {r.error}" for r in failed)
+            QtWidgets.QMessageBox.critical(self, "Organizer failed", errors)
+        else:
+            QtWidgets.QMessageBox.information(self, "Organizer", "All files processed successfully.")
+
+        self._finish_progress()
+
+        row_lookup = {item.path: index for index, item in enumerate(self.model._items)}
+        status_text = "Copied" if self.copy_checkbox.isChecked() else "Moved"
+        for report in reports:
+            row_index = row_lookup.get(report.plan.source)
+            if row_index is None:
+                continue
+            status = status_text if report.success else "Failed"
+            self.model.update_status([row_index], status)
+        if items:
+            if item := self.model.item_at(self.table_view.currentIndex().row()):
+                self.status_label.setText(item.status)
+
+    def _preview_selection(self) -> None:
+        paths = self._selected_paths()
+        if not paths:
+            QtWidgets.QMessageBox.information(self, "No selection", "Please select a video to preview.")
+            return
+
+        organizer = self._build_organizer()
+        plans = organizer.preview(paths, self._parse_custom_tags())
+        lines = [f"{plan.source.name} -> {plan.destination}" for plan in plans]
+        message = "\n".join(lines) or "No plans created."
+        QtWidgets.QMessageBox.information(self, "Preview", message)
 
     def _clear_metadata(self) -> None:
         self.file_name_label.setText("–")
         self.duration_label.setText("–")
         self.resolution_label.setText("–")
         self.status_label.setText("–")
+
+    def _selected_paths(self) -> List[Path]:
+        return [item.path for item in self._selected_items()]
+
+    def _selected_items(self) -> List[VideoItem]:
+        selection = self.table_view.selectionModel().selectedRows()
+        items: List[VideoItem] = []
+        for index in selection:
+            item = self.model.item_at(index.row())
+            if item:
+                items.append(item)
+        return items
+
+    def _parse_custom_tags(self) -> Dict[str, str]:
+        text = self.tags_input.text().strip()
+        if not text:
+            return {}
+        tags: Dict[str, str] = {}
+        for chunk in text.split(','):
+            if "=" in chunk:
+                key, value = chunk.split("=", 1)
+                tags[key.strip()] = value.strip()
+        return tags
+
+    def _build_organizer(self) -> Organizer:
+        destination_root = Path(self.output_input.text()).expanduser()
+        rule_engine = RuleEngine(
+            destination_root=destination_root,
+            folder_template=self.folder_template_input.text() or "{date:%Y/%m}",
+            filename_template=self.filename_template_input.text() or "{name}_{resolution}",
+        )
+        return Organizer(rule_engine=rule_engine, metadata_reader=self.metadata_reader)
+
+    def _make_video_item(self, path: Path) -> VideoItem:
+        try:
+            metadata = self.metadata_reader.read(path)
+        except Exception:
+            return VideoItem(path=path)
+
+        duration = f"{metadata.duration_seconds:.2f}s" if metadata.duration_seconds else "Unknown"
+        resolution = f"{metadata.resolution[0]}x{metadata.resolution[1]}" if metadata.resolution else "Unknown"
+        return VideoItem(path=path, duration=duration, resolution=resolution)
+
+    def _start_progress(self, total: int) -> None:
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(max(total, 1))
+        self.progress_bar.setValue(0)
+
+    def _finish_progress(self) -> None:
+        self.progress_bar.setVisible(False)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
