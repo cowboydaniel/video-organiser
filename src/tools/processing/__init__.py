@@ -8,6 +8,7 @@ from .pipeline import (
     VisualTag,
 )
 from .transcription import TranscriptionConfig, TranscriptionResult, TranscriptionService
+from .vision import VisionAnalyzer, media_signature
 
 __all__ = [
     "AnalysisResult",
@@ -18,4 +19,6 @@ __all__ = [
     "TranscriptionConfig",
     "TranscriptionResult",
     "TranscriptionService",
+    "VisionAnalyzer",
+    "media_signature",
 ]
