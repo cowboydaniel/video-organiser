@@ -21,6 +21,7 @@ class TranscriptionConfig:
 
     model_size: str = "base"
     device: str = "cpu"
+    sample_rate: int = 16000
     chunk_duration: float = 300.0
     diarization: bool = False
     auto_detect_language: bool = True
