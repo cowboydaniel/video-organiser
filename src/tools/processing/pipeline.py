@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from .summarizer import Summarizer, SummaryResult
+
 
 @dataclass(slots=True)
 class TranscriptSegment:
@@ -51,6 +53,7 @@ class AnalysisResult:
     scenes: list[SceneSegment]
     visual_tags: list[VisualTag]
     fused_summary: str
+    summary: SummaryResult
     artifacts_dir: Path
 
 
@@ -70,6 +73,7 @@ class ProcessingPipeline:
         self.scene_interval = scene_interval
         self.transcriber = TranscriptionService(transcription_config)
         self.vision = VisionAnalyzer(scene_interval=scene_interval, cache_root=self.cache_root)
+        self.summarizer = Summarizer()
 
     def process(self, video_path: Path) -> AnalysisResult:
         """Run the pipeline over ``video_path`` and return structured outputs."""
@@ -80,7 +84,7 @@ class ProcessingPipeline:
         audio_path = extract_audio_track(normalized_path, artifacts_dir)
         transcript = self._transcribe_audio(audio_path)
         scenes, visual_tags = self.vision.analyze(normalized_path, artifacts_dir)
-        fused_summary = self._fuse_modalities(transcript, visual_tags)
+        summary = self._fuse_modalities(transcript, scenes, visual_tags)
 
         return AnalysisResult(
             video_path=normalized_path,
@@ -88,7 +92,8 @@ class ProcessingPipeline:
             transcript=transcript,
             scenes=scenes,
             visual_tags=visual_tags,
-            fused_summary=fused_summary,
+            fused_summary=summary.to_text(),
+            summary=summary,
             artifacts_dir=artifacts_dir,
         )
 
@@ -131,15 +136,14 @@ class ProcessingPipeline:
         return tags
 
     def _fuse_modalities(
-        self, transcript: Sequence[TranscriptSegment], visual_tags: Sequence[VisualTag]
-    ) -> str:
-        """Fuse text and visual tags into a human-readable summary."""
+        self,
+        transcript: Sequence[TranscriptSegment],
+        scenes: Sequence[SceneSegment],
+        visual_tags: Sequence[VisualTag],
+    ) -> SummaryResult:
+        """Fuse text and visual tags into a structured summary."""
 
-        transcript_text = " ".join(segment.text for segment in transcript)
-        tag_labels = ", ".join(tag.label for tag in visual_tags)
-        if not tag_labels:
-            return transcript_text
-        return f"{transcript_text}\nDetected visuals: {tag_labels}."
+        return self.summarizer.summarize(transcript, scenes, visual_tags)
 
 
 def extract_audio_track(video_path: Path, artifacts_dir: Path) -> Path:
