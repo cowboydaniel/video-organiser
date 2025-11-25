@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .pipeline import SceneSegment, VisualTag, _probe_duration
+from .utils import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -182,9 +183,15 @@ class VisionAnalyzer:
             return self._heuristic_tags(frame_path)
 
         try:
-            predictions = classifier(str(frame_path))
+            predictions = retry_with_backoff(
+                lambda: classifier(str(frame_path)),
+                attempts=3,
+                base_delay=0.5,
+                logger=logger,
+                description="vision model inference",
+            )
         except Exception:
-            logger.exception("Model inference failed; using heuristic tags instead")
+            logger.exception("Model inference failed after retries; using heuristic tags instead")
             return self._heuristic_tags(frame_path)
 
         if isinstance(predictions, dict):

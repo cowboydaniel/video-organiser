@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -9,7 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from app.services.paths import ensure_config_dir
+
+from .cache import ProcessingCache
 from .summarizer import Summarizer, SummaryResult
+from .utils import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -65,26 +72,54 @@ class ProcessingPipeline:
         cache_root: Path | None = None,
         scene_interval: float = 5.0,
         transcription_config: "TranscriptionConfig | None" = None,
+        metadata_cache: ProcessingCache | None = None,
     ) -> None:
         from .transcription import TranscriptionConfig, TranscriptionService
         from .vision import VisionAnalyzer
 
-        self.cache_root = cache_root or Path(tempfile.gettempdir())
+        default_cache_root = ensure_config_dir() / "processing_artifacts"
+        self.cache_root = cache_root or default_cache_root
         self.scene_interval = scene_interval
         self.transcriber = TranscriptionService(transcription_config)
         self.vision = VisionAnalyzer(scene_interval=scene_interval, cache_root=self.cache_root)
         self.summarizer = Summarizer()
+        self.metadata_cache = metadata_cache or ProcessingCache()
 
     def process(self, video_path: Path) -> AnalysisResult:
         """Run the pipeline over ``video_path`` and return structured outputs."""
+        from .vision import media_signature
 
         normalized_path = video_path.expanduser().resolve()
+        checksum = media_signature(normalized_path)
+        cached_entry = self.metadata_cache.get(checksum)
         artifacts_dir = self._prepare_artifacts_dir(normalized_path)
 
         audio_path = extract_audio_track(normalized_path, artifacts_dir)
-        transcript = self._transcribe_audio(audio_path)
-        scenes, visual_tags = self.vision.analyze(normalized_path, artifacts_dir)
-        summary = self._fuse_modalities(transcript, scenes, visual_tags)
+        transcript = cached_entry.transcript if cached_entry and cached_entry.transcript else None
+        if transcript is None:
+            transcript = self._transcribe_audio(audio_path)
+            self.metadata_cache.store_transcript(checksum, transcript)
+        else:
+            logger.info("Using cached transcript for %s", normalized_path)
+
+        try:
+            scenes, visual_tags = self.vision.analyze(normalized_path, artifacts_dir)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.exception("Vision analysis failed for %s: %s", normalized_path, exc)
+            scenes, visual_tags = [], []
+
+        if not visual_tags and cached_entry and cached_entry.tags:
+            logger.info("Using cached visual tags for %s", normalized_path)
+            visual_tags = cached_entry.tags
+        elif visual_tags:
+            self.metadata_cache.store_tags(checksum, visual_tags)
+
+        summary = cached_entry.summary if cached_entry and cached_entry.summary else None
+        if summary is None:
+            summary = self._fuse_modalities(transcript, scenes, visual_tags)
+            self.metadata_cache.store_summary(checksum, summary)
+        else:
+            logger.info("Using cached summary for %s", normalized_path)
 
         return AnalysisResult(
             video_path=normalized_path,
@@ -105,8 +140,17 @@ class ProcessingPipeline:
 
     def _transcribe_audio(self, audio_path: Path) -> list[TranscriptSegment]:
         """Transcribe audio into segments using the configured backend."""
-
-        result = self.transcriber.transcribe(audio_path)
+        try:
+            result = retry_with_backoff(
+                lambda: self.transcriber.transcribe(audio_path),
+                attempts=3,
+                base_delay=1.0,
+                logger=logger,
+                description="transcription",
+            )
+        except Exception as exc:
+            logger.error("Transcription failed for %s: %s", audio_path, exc)
+            raise
         if not result.segments:
             return [
                 TranscriptSegment(
