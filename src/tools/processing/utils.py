@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import importlib
 from typing import Callable, Iterable, TypeVar
 
 
@@ -53,4 +54,30 @@ def retry_with_backoff(
 
     assert last_error is not None  # for type checkers
     raise last_error
+
+
+def resolve_device(preference: str) -> str:
+    """Resolve a user-provided device string to a concrete runtime target.
+
+    "auto" prefers CUDA when available, otherwise falls back to CPU. Any other
+    value is returned unchanged so callers can opt into explicit devices such as
+    ``cuda:0`` or ``mps`` when supported by the local torch build.
+    """
+
+    if preference != "auto":
+        return preference
+
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec is None:
+        return "cpu"
+
+    torch = importlib.import_module("torch")
+    if torch.cuda.is_available():
+        return "cuda"
+
+    mps_backend = getattr(getattr(torch, "backends", None), "mps", None)
+    if mps_backend and mps_backend.is_available():
+        return "mps"
+
+    return "cpu"
 

@@ -72,6 +72,7 @@ class ProcessingPipeline:
         cache_root: Path | None = None,
         scene_interval: float = 5.0,
         transcription_config: "TranscriptionConfig | None" = None,
+        vision_device: str = "auto",
         metadata_cache: ProcessingCache | None = None,
     ) -> None:
         from .transcription import TranscriptionConfig, TranscriptionService
@@ -81,7 +82,9 @@ class ProcessingPipeline:
         self.cache_root = cache_root or default_cache_root
         self.scene_interval = scene_interval
         self.transcriber = TranscriptionService(transcription_config)
-        self.vision = VisionAnalyzer(scene_interval=scene_interval, cache_root=self.cache_root)
+        self.vision = VisionAnalyzer(
+            scene_interval=scene_interval, cache_root=self.cache_root, device=vision_device
+        )
         self.summarizer = Summarizer()
         self.metadata_cache = metadata_cache or ProcessingCache()
 

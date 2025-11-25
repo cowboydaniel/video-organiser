@@ -15,6 +15,7 @@ from app.services.organizer import Organizer
 from app.services.rules import RuleEngine
 from app.services.scanner import VIDEO_EXTENSIONS
 from tools.processing import ProcessingPipeline, TranscriptionConfig
+from tools.processing.preflight import run_preflight_checks
 
 app = typer.Typer(help="Utility commands for the Video Organiser.")
 
@@ -47,7 +48,9 @@ def greet(name: str = typer.Argument("friend", help="Name to greet.")) -> None:
 def transcribe(
     video: Path = typer.Argument(..., exists=True, help="Video file to transcribe."),
     model_size: str = typer.Option("base", "--model-size", "-m", help="Whisper model size to load."),
-    device: str = typer.Option("cpu", "--device", "-d", help="Compute device to run the model on."),
+    device: str = typer.Option(
+        "auto", "--device", "-d", help="Compute device to run the Whisper model on."
+    ),
     sample_rate: int = typer.Option(16000, help="Target audio sample rate for extraction."),
     confidence_threshold: float = typer.Option(
         0.0,
@@ -90,7 +93,9 @@ def transcribe(
 def analyze(
     video: Path = typer.Argument(..., exists=True, help="Video file to analyze."),
     model_size: str = typer.Option("base", "--model-size", "-m", help="Whisper model size to load."),
-    device: str = typer.Option("cpu", "--device", "-d", help="Compute device to run the model on."),
+    device: str = typer.Option(
+        "auto", "--device", "-d", help="Compute device to run the Whisper model on."
+    ),
     sample_rate: int = typer.Option(16000, help="Target audio sample rate for extraction."),
     confidence_threshold: float = typer.Option(
         0.0,
@@ -103,6 +108,11 @@ def analyze(
     language_detection: bool = typer.Option(True, help="Detect spoken language automatically."),
     chunk_duration: float = typer.Option(300.0, help="Chunk duration (seconds) for long recordings."),
     scene_interval: float = typer.Option(5.0, help="Keyframe sampling interval in seconds."),
+    vision_device: str = typer.Option(
+        "auto",
+        "--vision-device",
+        help="Compute device for the vision model (image classification).",
+    ),
 ) -> None:
     """Run the full analysis pipeline and print structured JSON suggestions."""
 
@@ -115,7 +125,9 @@ def analyze(
         auto_detect_language=language_detection,
         chunk_duration=chunk_duration,
     )
-    pipeline = ProcessingPipeline(transcription_config=config, scene_interval=scene_interval)
+    pipeline = ProcessingPipeline(
+        transcription_config=config, scene_interval=scene_interval, vision_device=vision_device
+    )
 
     with typer.progressbar(length=4, label="Analyzing") as progress:
 
@@ -137,6 +149,31 @@ def analyze(
 
 
 @app.command()
+def preflight(
+    model_size: str = typer.Option("base", "--model-size", "-m", help="Whisper model size to check."),
+    transcription_device: str = typer.Option(
+        "auto", "--device", "-d", help="Compute device to validate for Whisper."
+    ),
+    vision_device: str = typer.Option(
+        "auto", "--vision-device", help="Compute device to validate for vision tagging."
+    ),
+) -> None:
+    """Run dependency and model checks without blocking the main workflow."""
+
+    typer.echo("Starting background preflight checks...")
+    results = run_preflight_checks(model_size, transcription_device, vision_device)
+
+    status_counts = {"ok": 0, "warning": 0, "error": 0}
+    for result in results:
+        status_counts[result.status] = status_counts.get(result.status, 0) + 1
+        status_label = result.status.upper()
+        typer.echo(f"[{status_label}] {result.name}: {result.detail}")
+
+    if status_counts.get("error"):
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def organize(
     source: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing media files."),
     destination: Path = typer.Option(Path.home() / "Videos" / "Organized", "--destination", "-d", help="Output root folder."),
@@ -147,6 +184,11 @@ def organize(
     tag: list[str] = typer.Option([], help="Custom tag in key=value form. Can be provided multiple times."),
     analyze: bool = typer.Option(False, help="Run the analysis pipeline before organizing."),
     scene_interval: float = typer.Option(5.0, help="Keyframe sampling interval in seconds."),
+    vision_device: str = typer.Option(
+        "auto",
+        "--vision-device",
+        help="Compute device for the vision model when running analysis.",
+    ),
 ) -> None:
     """Apply rule-based organization in headless mode."""
 
@@ -180,7 +222,7 @@ def organize(
         if analyze:
             typer.echo(f"[{index}/{len(media_paths)}] Analyzing {path.name}")
             if pipeline is None:
-                pipeline = ProcessingPipeline(scene_interval=scene_interval)
+                pipeline = ProcessingPipeline(scene_interval=scene_interval, vision_device=vision_device)
             with typer.progressbar(length=4, label=f"Analyze {path.name}") as progress:
 
                 def _report(message: str, _progress: float | None = None) -> None:
