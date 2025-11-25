@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .pipeline import SceneSegment, VisualTag, _probe_duration
-from .utils import retry_with_backoff
+from .utils import resolve_device, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,15 @@ class VisionCache:
 class VisionAnalyzer:
     """Detect scene boundaries and tag visual content with caching support."""
 
-    def __init__(self, scene_interval: float = 5.0, cache_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        scene_interval: float = 5.0,
+        cache_root: Path | None = None,
+        device: str = "auto",
+    ) -> None:
         self.scene_interval = scene_interval
         self.cache_root = cache_root or Path(tempfile.gettempdir())
+        self.device_preference = device
 
     def analyze(self, video_path: Path, artifacts_dir: Path) -> tuple[list[SceneSegment], list[VisualTag]]:
         """Return scenes and visual tags for ``video_path`` using cached results when available."""
@@ -166,17 +172,33 @@ class VisionAnalyzer:
         return tags
 
     def _load_classifier(self):
-        try:
-            from transformers import pipeline
+        import importlib
 
-            return pipeline(
-                "image-classification",
-                model="google/vit-base-patch16-224",
-                top_k=3,
-            )
-        except Exception:
+        transformers_spec = importlib.util.find_spec("transformers")
+        if transformers_spec is None:
             logger.debug("Transformers pipeline unavailable; using heuristic fallback for tags")
             return None
+
+        resolved_device = resolve_device(self.device_preference)
+        device_argument: int | str = -1 if resolved_device == "cpu" else resolved_device
+
+        try:
+            torch_spec = importlib.util.find_spec("torch")
+            if torch_spec is not None and resolved_device != "cpu":
+                torch = importlib.import_module("torch")
+                device_argument = torch.device(resolved_device)
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.debug("Torch device resolution failed; falling back to raw device string")
+
+        transformers = importlib.import_module("transformers")
+        pipeline = transformers.pipeline
+
+        return pipeline(
+            "image-classification",
+            model="google/vit-base-patch16-224",
+            top_k=3,
+            device=device_argument,
+        )
 
     def _classify_frame(self, frame_path: Path, classifier) -> list[dict]:
         if classifier is None:

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import math
 import logging
 import shutil
 import subprocess
 import tempfile
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence, Tuple
 
 from .pipeline import TranscriptSegment
+from .utils import resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -75,22 +76,16 @@ class TranscriptionService:
         if self._model is not None:
             return self._model
 
-        try:
-            import whisper
-        except Exception as exc:  # pragma: no cover - optional dependency
+        import importlib
+
+        whisper_spec = importlib.util.find_spec("whisper")
+        if whisper_spec is None:
             raise RuntimeError(
                 "Whisper is not installed. Install `openai-whisper` or configure whisper.cpp for transcription."
-            ) from exc
+            )
 
-        device = self.config.device
-        if device == "auto":  # pragma: no cover - requires torch runtime
-            try:
-                import torch
-
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except Exception:
-                device = "cpu"
-
+        whisper = importlib.import_module("whisper")
+        device = resolve_device(self.config.device)
         self._model = whisper.load_model(self.config.model_size, device=device)
         return self._model
 
