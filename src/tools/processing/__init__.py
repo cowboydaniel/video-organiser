@@ -7,6 +7,7 @@ from .pipeline import (
     TranscriptSegment,
     VisualTag,
 )
+from .summarizer import SceneEvidence, Summarizer, SummarizerConfig, SummaryResult
 from .transcription import TranscriptionConfig, TranscriptionResult, TranscriptionService
 from .vision import VisionAnalyzer, media_signature
 
@@ -16,6 +17,10 @@ __all__ = [
     "SceneSegment",
     "TranscriptSegment",
     "VisualTag",
+    "SceneEvidence",
+    "Summarizer",
+    "SummarizerConfig",
+    "SummaryResult",
     "TranscriptionConfig",
     "TranscriptionResult",
     "TranscriptionService",
