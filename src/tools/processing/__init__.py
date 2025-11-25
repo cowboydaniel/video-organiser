@@ -7,6 +7,7 @@ from .pipeline import (
     TranscriptSegment,
     VisualTag,
 )
+from .metrics import tag_precision_recall, title_relevance_score, word_error_rate
 from .summarizer import SceneEvidence, Summarizer, SummarizerConfig, SummaryResult
 from .transcription import TranscriptionConfig, TranscriptionResult, TranscriptionService
 from .vision import VisionAnalyzer, media_signature
@@ -17,6 +18,9 @@ __all__ = [
     "SceneSegment",
     "TranscriptSegment",
     "VisualTag",
+    "tag_precision_recall",
+    "title_relevance_score",
+    "word_error_rate",
     "SceneEvidence",
     "Summarizer",
     "SummarizerConfig",

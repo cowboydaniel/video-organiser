@@ -1,0 +1,24 @@
+[
+  {
+    "id": "greeting_clip",
+    "description": "Short greeting clip introducing the organiser and categorisation goals.",
+    "transcript": "Hello and welcome to this organiser demo where we tag bright intro scenes.",
+    "tags": ["bright_scene", "intro"],
+    "title": "Organizer demo greeting",
+    "primary_subjects": ["organizer"],
+    "category": "demo",
+    "key_phrases": ["organiser demo", "tag bright intro"],
+    "expected_folder": "organizer/demo/2024"
+  },
+  {
+    "id": "tutorial_clip",
+    "description": "Quick tutorial clip about building reliable regression checks.",
+    "transcript": "In this tutorial we build regression tests and measure metrics for video tagging.",
+    "tags": ["dim_scene", "tutorial"],
+    "title": "Regression testing tutorial",
+    "primary_subjects": ["tutorial", "metrics"],
+    "category": "education",
+    "key_phrases": ["regression tests", "video tagging"],
+    "expected_folder": "tutorial/education/2024"
+  }
+]

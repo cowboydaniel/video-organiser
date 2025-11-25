@@ -50,6 +50,10 @@ Run the test suite with pytest:
 pytest
 ```
 
+Regression coverage includes a curated metadata-only sample set in `tests/fixtures/sample_videos.json` with expected titles,
+categories, and tags. The processing pipeline tests stub external dependencies, generate placeholder audio, and track metrics
+such as transcript word error rate, tag precision/recall, and title relevance against the descriptors.
+
 Run linting with Ruff:
 
 ```bash

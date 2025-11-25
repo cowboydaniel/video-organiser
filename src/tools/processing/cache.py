@@ -6,12 +6,14 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Sequence
 
 from app.services.paths import CONFIG_DIR, ensure_config_dir
 
-from .pipeline import TranscriptSegment, VisualTag
 from .summarizer import SceneEvidence, SummaryResult
+
+if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    from .pipeline import TranscriptSegment, VisualTag
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,8 @@ class ProcessingCache:
 
     @staticmethod
     def _deserialize_transcript(raw: Iterable[dict[str, Any]]) -> list[TranscriptSegment]:
+        from .pipeline import TranscriptSegment
+
         segments: list[TranscriptSegment] = []
         for item in raw:
             try:
@@ -126,6 +130,8 @@ class ProcessingCache:
 
     @staticmethod
     def _deserialize_tags(raw: Iterable[dict[str, Any]]) -> list[VisualTag]:
+        from .pipeline import VisualTag
+
         tags: list[VisualTag] = []
         for item in raw:
             try:
