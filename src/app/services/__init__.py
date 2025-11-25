@@ -6,7 +6,7 @@ from .organizer import OperationReport, Organizer
 from .paths import CONFIG_DIR, ensure_config_dir
 from .rules import DestinationPlan, RuleEngine
 from .scanner import MediaScanner, ScanFilters, ScanResult
-from .settings import RulePresets, SettingsManager, UserSettings
+from .settings import RulePresets, SettingsManager, TranscriptionSettings, UserSettings
 from .threading import run_in_qthread, run_in_qtconcurrent, WorkerSignals
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "MetadataCache",
     "RulePresets",
     "SettingsManager",
+    "TranscriptionSettings",
     "UserSettings",
     "CONFIG_DIR",
     "ensure_config_dir",

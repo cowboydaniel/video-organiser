@@ -18,6 +18,8 @@ class TranscriptSegment:
     end: float
     text: str
     speaker: str | None = None
+    language: str | None = None
+    confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -55,9 +57,17 @@ class AnalysisResult:
 class ProcessingPipeline:
     """Orchestrate media processing for multi-modal analysis."""
 
-    def __init__(self, cache_root: Path | None = None, scene_interval: float = 5.0) -> None:
+    def __init__(
+        self,
+        cache_root: Path | None = None,
+        scene_interval: float = 5.0,
+        transcription_config: "TranscriptionConfig | None" = None,
+    ) -> None:
+        from .transcription import TranscriptionConfig, TranscriptionService
+
         self.cache_root = cache_root or Path(tempfile.gettempdir())
         self.scene_interval = scene_interval
+        self.transcriber = TranscriptionService(transcription_config)
 
     def process(self, video_path: Path) -> AnalysisResult:
         """Run the pipeline over ``video_path`` and return structured outputs."""
@@ -88,13 +98,20 @@ class ProcessingPipeline:
         return target
 
     def _transcribe_audio(self, audio_path: Path) -> list[TranscriptSegment]:
-        """Placeholder transcription step producing time-aligned segments."""
+        """Transcribe audio into segments using the configured backend."""
 
-        # In a full implementation this would call a speech-to-text engine.
-        return [
-            TranscriptSegment(start=0.0, end=5.0, text="Transcription not implemented.", speaker=None),
-            TranscriptSegment(start=5.0, end=10.0, text="Replace with real ASR output when available.", speaker=None),
-        ]
+        result = self.transcriber.transcribe(audio_path)
+        if not result.segments:
+            return [
+                TranscriptSegment(
+                    start=0.0,
+                    end=0.0,
+                    text="No transcription available.",
+                    speaker=None,
+                    language=result.detected_language,
+                )
+            ]
+        return result.segments
 
     def _tag_scenes(self, scenes: Sequence[SceneSegment]) -> list[VisualTag]:
         """Placeholder visual tagging over keyframes."""

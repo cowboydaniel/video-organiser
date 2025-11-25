@@ -7,6 +7,7 @@ from .pipeline import (
     TranscriptSegment,
     VisualTag,
 )
+from .transcription import TranscriptionConfig, TranscriptionResult, TranscriptionService
 
 __all__ = [
     "AnalysisResult",
@@ -14,4 +15,7 @@ __all__ = [
     "SceneSegment",
     "TranscriptSegment",
     "VisualTag",
+    "TranscriptionConfig",
+    "TranscriptionResult",
+    "TranscriptionService",
 ]

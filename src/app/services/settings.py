@@ -18,12 +18,24 @@ class RulePresets:
 
 
 @dataclass(slots=True)
+class TranscriptionSettings:
+    """Preferences for speech-to-text processing."""
+
+    model_size: str = "base"
+    device: str = "cpu"
+    confidence_threshold: float = 0.0
+    diarization: bool = False
+    language_detection: bool = True
+
+
+@dataclass(slots=True)
 class UserSettings:
     """Top-level settings stored on disk."""
 
     last_directory: str | None = None
     rule_presets: RulePresets = field(default_factory=RulePresets)
     theme: str = "light"
+    transcription: TranscriptionSettings = field(default_factory=TranscriptionSettings)
 
 
 class SettingsManager:
@@ -80,6 +92,30 @@ class SettingsManager:
             presets.filename_template = filename_template
         self.save()
 
+    def update_transcription_settings(
+        self,
+        *,
+        model_size: str | None = None,
+        device: str | None = None,
+        confidence_threshold: float | None = None,
+        diarization: bool | None = None,
+        language_detection: bool | None = None,
+    ) -> None:
+        """Persist preferred transcription configuration."""
+
+        preferences = self._settings.transcription
+        if model_size is not None:
+            preferences.model_size = model_size
+        if device is not None:
+            preferences.device = device
+        if confidence_threshold is not None:
+            preferences.confidence_threshold = confidence_threshold
+        if diarization is not None:
+            preferences.diarization = diarization
+        if language_detection is not None:
+            preferences.language_detection = language_detection
+        self.save()
+
     def set_theme(self, theme: str) -> None:
         """Persist the user's preferred theme."""
 
@@ -99,4 +135,26 @@ class SettingsManager:
         last_directory = data.get("last_directory") if isinstance(data, dict) else None
         theme_value = data.get("theme") if isinstance(data, dict) else None
         theme = str(theme_value) if theme_value else "light"
-        return UserSettings(last_directory=last_directory, rule_presets=presets, theme=theme)
+        transcription_data = data.get("transcription") if isinstance(data, dict) else None
+        default_transcription = TranscriptionSettings()
+        transcription = TranscriptionSettings(
+            model_size=str(
+                (transcription_data or {}).get("model_size") or default_transcription.model_size
+            ),
+            device=str((transcription_data or {}).get("device") or default_transcription.device),
+            confidence_threshold=float(
+                (transcription_data or {}).get("confidence_threshold")
+                if (transcription_data or {}).get("confidence_threshold") is not None
+                else default_transcription.confidence_threshold
+            ),
+            diarization=bool((transcription_data or {}).get("diarization", default_transcription.diarization)),
+            language_detection=bool(
+                (transcription_data or {}).get("language_detection", default_transcription.language_detection)
+            ),
+        )
+        return UserSettings(
+            last_directory=last_directory,
+            rule_presets=presets,
+            theme=theme,
+            transcription=transcription,
+        )
