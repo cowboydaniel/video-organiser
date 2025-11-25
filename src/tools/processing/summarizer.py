@@ -1,10 +1,17 @@
 """LLM-backed summarization that fuses transcript and vision evidence."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+import logging
+import inspect
 from typing import Callable, Sequence
+
+from .utils import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -165,9 +172,24 @@ class Summarizer:
         if self.llm_client is None:
             return json.dumps(self._heuristic_summary(evidence))
         try:
-            response = self.llm_client(prompt)
-        except Exception:
+            response = retry_with_backoff(
+                lambda: self.llm_client(prompt),
+                attempts=3,
+                base_delay=1.0,
+                logger=logger,
+                description="LLM summarization",
+            )
+        except Exception as exc:
+            logger.error("LLM invocation failed after retries: %s", exc)
             return json.dumps(self._heuristic_summary(evidence))
+
+        if inspect.isawaitable(response):
+            try:
+                response = asyncio.run(response)
+            except RuntimeError:
+                logger.warning("Event loop already running; using heuristic summary instead")
+                return json.dumps(self._heuristic_summary(evidence))
+
         return response or json.dumps(self._heuristic_summary(evidence))
 
     def _heuristic_summary(self, evidence: Sequence[SceneEvidence]) -> dict:

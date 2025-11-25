@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ from typing import Iterable, Sequence, Tuple
 
 from .pipeline import TranscriptSegment
 
+logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class TranscriptionConfig:
@@ -51,12 +53,16 @@ class TranscriptionService:
         detected_language: str | None = None
 
         for chunk_path, offset in chunks:
-            result = model.transcribe(
-                str(chunk_path),
-                word_timestamps=True,
-                language=None,
-                fp16=self.config.device != "cpu",
-            )
+            try:
+                result = model.transcribe(
+                    str(chunk_path),
+                    word_timestamps=True,
+                    language=None,
+                    fp16=self.config.device != "cpu",
+                )
+            except Exception as exc:
+                logger.error("Model transcription failed for chunk %s: %s", chunk_path, exc)
+                continue
             if self.config.auto_detect_language:
                 detected_language = detected_language or result.get("language")
             language_tag = detected_language if self.config.auto_detect_language else None
@@ -115,6 +121,7 @@ class TranscriptionService:
             try:
                 subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except subprocess.CalledProcessError:
+                logger.warning("Failed to extract audio chunk at %ss", start)
                 continue
             chunks.append((chunk_path, start))
 
