@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from app.services.paths import ensure_config_dir
 
@@ -85,24 +85,45 @@ class ProcessingPipeline:
         self.summarizer = Summarizer()
         self.metadata_cache = metadata_cache or ProcessingCache()
 
-    def process(self, video_path: Path) -> AnalysisResult:
+    def process(
+        self,
+        video_path: Path,
+        progress_callback: Callable[[str, float | None], None] | None = None,
+    ) -> AnalysisResult:
         """Run the pipeline over ``video_path`` and return structured outputs."""
         from .vision import media_signature
+
+        def report(message: str, progress: float | None = None) -> None:
+            if progress_callback:
+                progress_callback(message, progress)
+
+        steps = [
+            "extract_audio",
+            "transcribe",
+            "vision",
+            "summarize",
+        ]
+        step_size = 1.0 / max(len(steps), 1)
 
         normalized_path = video_path.expanduser().resolve()
         checksum = media_signature(normalized_path)
         cached_entry = self.metadata_cache.get(checksum)
         artifacts_dir = self._prepare_artifacts_dir(normalized_path)
 
-        audio_path = extract_audio_track(normalized_path, artifacts_dir)
+        report("Extracting audio track", step_size)
+        audio_path = extract_audio_track(
+            normalized_path, artifacts_dir, sample_rate=self.transcriber.config.sample_rate
+        )
         transcript = cached_entry.transcript if cached_entry and cached_entry.transcript else None
         if transcript is None:
+            report("Transcribing audio", step_size * 2)
             transcript = self._transcribe_audio(audio_path)
             self.metadata_cache.store_transcript(checksum, transcript)
         else:
             logger.info("Using cached transcript for %s", normalized_path)
 
         try:
+            report("Running visual analysis", step_size * 3)
             scenes, visual_tags = self.vision.analyze(normalized_path, artifacts_dir)
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.exception("Vision analysis failed for %s: %s", normalized_path, exc)
@@ -116,6 +137,7 @@ class ProcessingPipeline:
 
         summary = cached_entry.summary if cached_entry and cached_entry.summary else None
         if summary is None:
+            report("Fusing transcript and visual tags", step_size * 4)
             summary = self._fuse_modalities(transcript, scenes, visual_tags)
             self.metadata_cache.store_summary(checksum, summary)
         else:
@@ -190,7 +212,7 @@ class ProcessingPipeline:
         return self.summarizer.summarize(transcript, scenes, visual_tags)
 
 
-def extract_audio_track(video_path: Path, artifacts_dir: Path) -> Path:
+def extract_audio_track(video_path: Path, artifacts_dir: Path, *, sample_rate: int = 16000) -> Path:
     """Extract the audio track using ffmpeg or moviepy fallbacks."""
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -210,7 +232,7 @@ def extract_audio_track(video_path: Path, artifacts_dir: Path) -> Path:
             "-acodec",
             "pcm_s16le",
             "-ar",
-            "16000",
+            str(sample_rate),
             "-ac",
             "1",
             str(audio_path),
@@ -231,7 +253,7 @@ def extract_audio_track(video_path: Path, artifacts_dir: Path) -> Path:
         if audio_clip is None:
             raise RuntimeError("Input video does not contain an audio track.")
         audio: AudioFileClip = audio_clip
-        audio.write_audiofile(str(audio_path), fps=16000, nbytes=2, codec="pcm_s16le")
+        audio.write_audiofile(str(audio_path), fps=sample_rate, nbytes=2, codec="pcm_s16le")
     return audio_path
 
 
