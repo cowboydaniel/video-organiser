@@ -64,10 +64,12 @@ class ProcessingPipeline:
         transcription_config: "TranscriptionConfig | None" = None,
     ) -> None:
         from .transcription import TranscriptionConfig, TranscriptionService
+        from .vision import VisionAnalyzer
 
         self.cache_root = cache_root or Path(tempfile.gettempdir())
         self.scene_interval = scene_interval
         self.transcriber = TranscriptionService(transcription_config)
+        self.vision = VisionAnalyzer(scene_interval=scene_interval, cache_root=self.cache_root)
 
     def process(self, video_path: Path) -> AnalysisResult:
         """Run the pipeline over ``video_path`` and return structured outputs."""
@@ -77,8 +79,7 @@ class ProcessingPipeline:
 
         audio_path = extract_audio_track(normalized_path, artifacts_dir)
         transcript = self._transcribe_audio(audio_path)
-        scenes = sample_scene_keyframes(normalized_path, artifacts_dir, interval_seconds=self.scene_interval)
-        visual_tags = self._tag_scenes(scenes)
+        scenes, visual_tags = self.vision.analyze(normalized_path, artifacts_dir)
         fused_summary = self._fuse_modalities(transcript, visual_tags)
 
         return AnalysisResult(
