@@ -13,6 +13,7 @@ from app.services.metadata_cache import MetadataCache
 from app.services.organizer import Organizer
 from app.services.rules import RuleEngine
 from app.services.scanner import VIDEO_EXTENSIONS
+from tools.processing import ProcessingPipeline, TranscriptionConfig
 
 app = typer.Typer(help="Utility commands for the Video Organiser.")
 
@@ -39,6 +40,47 @@ def greet(name: str = typer.Argument("friend", help="Name to greet.")) -> None:
     """Greet a user from the CLI."""
 
     typer.echo(f"Hello, {name}!")
+
+
+@app.command()
+def transcribe(
+    video: Path = typer.Argument(..., exists=True, help="Video file to transcribe."),
+    model_size: str = typer.Option("base", "--model-size", "-m", help="Whisper model size to load."),
+    device: str = typer.Option("cpu", "--device", "-d", help="Compute device to run the model on."),
+    confidence_threshold: float = typer.Option(
+        0.0,
+        "--confidence-threshold",
+        min=0.0,
+        max=1.0,
+        help="Discard segments with average confidence below this value.",
+    ),
+    diarization: bool = typer.Option(False, help="Attach lightweight speaker labels to each segment."),
+    language_detection: bool = typer.Option(True, help="Detect spoken language automatically."),
+    chunk_duration: float = typer.Option(300.0, help="Chunk duration (seconds) for long recordings."),
+) -> None:
+    """Extract audio and run Whisper transcription with chunking support."""
+
+    config = TranscriptionConfig(
+        model_size=model_size,
+        device=device,
+        confidence_threshold=confidence_threshold,
+        diarization=diarization,
+        auto_detect_language=language_detection,
+        chunk_duration=chunk_duration,
+    )
+    pipeline = ProcessingPipeline(transcription_config=config)
+    result = pipeline.process(video)
+
+    if not result.transcript:
+        typer.echo("No transcript generated.")
+        return
+
+    typer.echo(f"Detected language: {result.transcript[0].language or 'unknown'}")
+    for segment in result.transcript:
+        speaker = f" [{segment.speaker}]" if segment.speaker else ""
+        lang = f" ({segment.language})" if segment.language else ""
+        conf = f" ({segment.confidence:.2f})" if segment.confidence is not None else ""
+        typer.echo(f"[{segment.start:6.2f} - {segment.end:6.2f}]{speaker}{lang}{conf} {segment.text}")
 
 
 @app.command()

@@ -143,6 +143,26 @@ class MainWindow(QtWidgets.QMainWindow):
         rule_layout.addWidget(self.tags_input, 3, 1)
         rule_layout.addWidget(self.copy_checkbox, 4, 0, 1, 2)
 
+        transcription_group = QtWidgets.QGroupBox("Transcription")
+        transcription_layout = QtWidgets.QGridLayout(transcription_group)
+        self.model_size_combo = QtWidgets.QComboBox()
+        self.model_size_combo.addItems(["tiny", "base", "small", "medium", "large"])
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_combo.addItems(["cpu", "cuda", "auto"])
+        self.confidence_spin = QtWidgets.QDoubleSpinBox()
+        self.confidence_spin.setRange(0.0, 1.0)
+        self.confidence_spin.setSingleStep(0.05)
+        self.diarization_checkbox = QtWidgets.QCheckBox("Enable diarization")
+        self.language_detection_checkbox = QtWidgets.QCheckBox("Auto-detect language")
+        transcription_layout.addWidget(QtWidgets.QLabel("Model size"), 0, 0)
+        transcription_layout.addWidget(self.model_size_combo, 0, 1)
+        transcription_layout.addWidget(QtWidgets.QLabel("Device"), 1, 0)
+        transcription_layout.addWidget(self.device_combo, 1, 1)
+        transcription_layout.addWidget(QtWidgets.QLabel("Confidence threshold"), 2, 0)
+        transcription_layout.addWidget(self.confidence_spin, 2, 1)
+        transcription_layout.addWidget(self.diarization_checkbox, 3, 0, 1, 2)
+        transcription_layout.addWidget(self.language_detection_checkbox, 4, 0, 1, 2)
+
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.table_view = QtWidgets.QTableView()
         self.table_view.setModel(self.model)
@@ -187,6 +207,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         main_layout.addLayout(controls_layout)
         main_layout.addWidget(rule_group)
+        main_layout.addWidget(transcription_group)
         main_layout.addWidget(splitter)
         main_layout.addLayout(bottom_layout)
 
@@ -379,6 +400,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.folder_template_input.setText(presets.folder_template)
         self.filename_template_input.setText(presets.filename_template)
         self._theme = settings.theme
+        transcription = settings.transcription
+        self.model_size_combo.setCurrentText(transcription.model_size)
+        self.device_combo.setCurrentText(transcription.device)
+        self.confidence_spin.setValue(transcription.confidence_threshold)
+        self.diarization_checkbox.setChecked(transcription.diarization)
+        self.language_detection_checkbox.setChecked(transcription.language_detection)
 
     def _apply_style(self) -> None:
         if self._theme == "dark":
@@ -407,6 +434,13 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.settings_manager.update_last_directory(Path(self.directory_input.text()) if self.directory_input.text() else None)
         self.settings_manager.set_theme(self._theme)
+        self.settings_manager.update_transcription_settings(
+            model_size=self.model_size_combo.currentText(),
+            device=self.device_combo.currentText(),
+            confidence_threshold=self.confidence_spin.value(),
+            diarization=self.diarization_checkbox.isChecked(),
+            language_detection=self.language_detection_checkbox.isChecked(),
+        )
 
     def _load_icon(self, name: str) -> QtGui.QIcon:
         assets_dir = Path(__file__).resolve().parent.parent / "assets"
