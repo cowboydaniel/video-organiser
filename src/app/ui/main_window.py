@@ -19,6 +19,19 @@ from tools.processing import AnalysisResult, ProcessingPipeline, TranscriptionCo
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".flv", ".wmv"}
 
 
+def _format_duration(seconds: float) -> str:
+    """Format duration in seconds to a human-readable string (HH:MM:SS or MM:SS)."""
+    total_seconds = int(seconds)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes}:{secs:02d}"
+
+
 @dataclass
 class VideoItem:
     """Represents a video entry displayed in the table view."""
@@ -517,7 +530,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             return VideoItem(path=path)
 
-        duration = f"{metadata.duration_seconds:.2f}s" if metadata.duration_seconds else "Unknown"
+        duration = _format_duration(metadata.duration_seconds) if metadata.duration_seconds else "Unknown"
         resolution = f"{metadata.resolution[0]}x{metadata.resolution[1]}" if metadata.resolution else "Unknown"
         return VideoItem(path=path, duration=duration, resolution=resolution)
 
