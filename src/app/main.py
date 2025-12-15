@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+# Add the src directory to sys.path to enable absolute imports
+src_dir = Path(__file__).resolve().parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 from PySide6 import QtWidgets
 
-from .ui import MainWindow
+from app.ui import MainWindow
 
 
 def main() -> None:
