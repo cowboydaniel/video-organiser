@@ -1,6 +1,7 @@
 """Application main window and supporting models."""
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
@@ -142,6 +143,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_settings()
         self._apply_style()
         self._connect_signals()
+        self._check_dependencies()
 
     def _setup_ui(self) -> None:
         central_widget = QtWidgets.QWidget(self)
@@ -583,7 +585,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self._finish_progress()
         self.analyze_button.setEnabled(True)
         self._analysis_thread = None
-        QtWidgets.QMessageBox.critical(self, "Analysis failed", error)
+
+        # Check if the error is likely due to missing ffmpeg
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            error_message = (
+                f"<b>Analysis failed</b><br><br>"
+                f"Error: {error}<br><br>"
+                "This is likely because FFmpeg is not installed. "
+                "Please install FFmpeg and restart the application.<br><br>"
+                "<b>Ubuntu/Debian:</b><br>"
+                "<code>sudo apt-get install ffmpeg</code><br><br>"
+                "<b>Fedora:</b><br>"
+                "<code>sudo dnf install ffmpeg</code><br><br>"
+                "<b>Arch:</b><br>"
+                "<code>sudo pacman -S ffmpeg</code>"
+            )
+        else:
+            error_message = f"Analysis failed: {error}"
+
+        QtWidgets.QMessageBox.critical(self, "Analysis failed", error_message)
 
     def _persist_analysis_overrides(self) -> None:
         index = self.table_view.currentIndex()
@@ -680,6 +700,40 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_manager.update_processing_settings(
             scene_interval=self.scene_interval_spin.value()
         )
+
+    def _check_dependencies(self) -> None:
+        """Check for required system dependencies and show warnings if missing."""
+        missing_tools = []
+
+        if not shutil.which("ffmpeg"):
+            missing_tools.append("ffmpeg")
+        if not shutil.which("ffprobe"):
+            missing_tools.append("ffprobe")
+
+        # Check for at least one metadata reader
+        has_metadata_reader = shutil.which("ffprobe") or shutil.which("mediainfo")
+
+        if missing_tools:
+            message = (
+                "<b>Missing Required Dependencies</b><br><br>"
+                f"The following tools are not installed: <b>{', '.join(missing_tools)}</b><br><br>"
+                "Without these tools:<br>"
+                "• Video duration and resolution will show as 'Unknown'<br>"
+                "• Video analysis will fail or hang at 0%<br><br>"
+                "Please install FFmpeg using your package manager:<br><br>"
+                "<b>Ubuntu/Debian:</b><br>"
+                "<code>sudo apt-get install ffmpeg</code><br><br>"
+                "<b>Fedora:</b><br>"
+                "<code>sudo dnf install ffmpeg</code><br><br>"
+                "<b>Arch:</b><br>"
+                "<code>sudo pacman -S ffmpeg</code><br><br>"
+                "After installation, restart the application."
+            )
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Missing Dependencies",
+                message
+            )
 
     def _load_icon(self, name: str) -> QtGui.QIcon:
         assets_dir = Path(__file__).resolve().parent.parent / "assets"
