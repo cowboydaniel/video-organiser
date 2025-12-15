@@ -19,6 +19,19 @@ from tools.processing import AnalysisResult, ProcessingPipeline, TranscriptionCo
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".flv", ".wmv"}
 
 
+def _format_duration(seconds: float) -> str:
+    """Format duration in seconds to a human-readable string (HH:MM:SS or MM:SS)."""
+    total_seconds = int(seconds)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes}:{secs:02d}"
+
+
 @dataclass
 class VideoItem:
     """Represents a video entry displayed in the table view."""
@@ -108,6 +121,9 @@ class AnalysisWorker(QtCore.QObject):
     @QtCore.Slot()
     def run(self) -> None:
         try:
+            # Emit initial progress
+            self.progress.emit("Initializing analysis pipeline...", 0.0)
+
             pipeline = ProcessingPipeline(
                 transcription_config=self.config, scene_interval=self.scene_interval
             )
@@ -118,7 +134,9 @@ class AnalysisWorker(QtCore.QObject):
             result = pipeline.process(self.video, progress_callback=_report)
             self.finished.emit(result)
         except Exception as exc:  # pragma: no cover - UI surface
-            self.failed.emit(str(exc))
+            import traceback
+            error_details = f"{str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
+            self.failed.emit(error_details)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -517,7 +535,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             return VideoItem(path=path)
 
-        duration = f"{metadata.duration_seconds:.2f}s" if metadata.duration_seconds else "Unknown"
+        duration = _format_duration(metadata.duration_seconds) if metadata.duration_seconds else "Unknown"
         resolution = f"{metadata.resolution[0]}x{metadata.resolution[1]}" if metadata.resolution else "Unknown"
         return VideoItem(path=path, duration=duration, resolution=resolution)
 
@@ -529,6 +547,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._analysis_thread is not None and self._analysis_thread.isRunning():
             QtWidgets.QMessageBox.information(self, "Analysis", "Analysis is already running.")
             return
+
+        # Check for required dependencies before starting analysis
+        if not shutil.which("ffmpeg"):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Cannot Start Analysis",
+                "<b>FFmpeg is required for video analysis</b><br><br>"
+                "Please install FFmpeg before running analysis:<br><br>"
+                "<b>Ubuntu/Debian:</b><br>"
+                "<code>sudo apt-get install ffmpeg</code><br><br>"
+                "<b>Fedora:</b><br>"
+                "<code>sudo dnf install ffmpeg</code><br><br>"
+                "<b>Arch:</b><br>"
+                "<code>sudo pacman -S ffmpeg</code>"
+            )
+            return
+
         item = items[0]
         config = TranscriptionConfig(
             model_size=self.model_size_combo.currentText(),
@@ -590,7 +625,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
             error_message = (
                 f"<b>Analysis failed</b><br><br>"
-                f"Error: {error}<br><br>"
+                f"<pre>{error[:1000]}</pre><br><br>"
                 "This is likely because FFmpeg is not installed. "
                 "Please install FFmpeg and restart the application.<br><br>"
                 "<b>Ubuntu/Debian:</b><br>"
@@ -601,9 +636,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 "<code>sudo pacman -S ffmpeg</code>"
             )
         else:
-            error_message = f"Analysis failed: {error}"
+            # Show detailed error with traceback
+            error_message = (
+                f"<b>Analysis failed</b><br><br>"
+                f"<pre>{error[:2000]}</pre>"
+            )
 
-        QtWidgets.QMessageBox.critical(self, "Analysis failed", error_message)
+        # Create a message box with scrollable text for long errors
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("Analysis Failed")
+        msg_box.setText(error_message)
+        msg_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        msg_box.exec()
 
     def _persist_analysis_overrides(self) -> None:
         index = self.table_view.currentIndex()

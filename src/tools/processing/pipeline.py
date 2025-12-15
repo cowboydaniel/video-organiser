@@ -222,6 +222,7 @@ def extract_audio_track(video_path: Path, artifacts_dir: Path, *, sample_rate: i
     audio_path = artifacts_dir / f"{video_path.stem}_audio.wav"
 
     if audio_path.exists():
+        logger.info("Using cached audio file: %s", audio_path)
         return audio_path
 
     ffmpeg_binary = shutil.which("ffmpeg")
@@ -241,10 +242,30 @@ def extract_audio_track(video_path: Path, artifacts_dir: Path, *, sample_rate: i
             str(audio_path),
         ]
         try:
-            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("Extracting audio with ffmpeg: %s", video_path)
+            # Add timeout to prevent hanging indefinitely (30 minutes max)
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=1800
+            )
+            logger.info("Audio extraction completed: %s", audio_path)
             return audio_path
-        except subprocess.CalledProcessError:
+        except subprocess.TimeoutExpired:
             audio_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Audio extraction timed out after 30 minutes. "
+                f"The video file may be too large or corrupted: {video_path}"
+            )
+        except subprocess.CalledProcessError as e:
+            audio_path.unlink(missing_ok=True)
+            stderr = e.stderr.decode() if e.stderr else "No error output"
+            raise RuntimeError(
+                f"FFmpeg failed to extract audio from {video_path.name}. "
+                f"Error: {stderr[:500]}"
+            )
 
     try:
         from moviepy.editor import AudioFileClip, VideoFileClip
@@ -283,9 +304,24 @@ def sample_scene_keyframes(
             str(frame_pattern),
         ]
         try:
-            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            pass
+            logger.info("Sampling keyframes with ffmpeg: %s", video_path)
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=1800
+            )
+            logger.info("Keyframe sampling completed")
+        except subprocess.TimeoutExpired:
+            logger.error("Keyframe sampling timed out after 30 minutes")
+            raise RuntimeError(
+                f"Frame sampling timed out after 30 minutes. "
+                f"The video file may be too large or corrupted: {video_path}"
+            )
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode() if e.stderr else "No error output"
+            logger.warning("FFmpeg keyframe sampling failed: %s", stderr[:200])
 
     frames = sorted(frames_dir.glob("frame_*.jpg"))
     if not frames:
