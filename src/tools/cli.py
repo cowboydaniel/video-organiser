@@ -177,7 +177,7 @@ def preflight(
 def organize(
     source: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing media files."),
     destination: Path = typer.Option(Path.home() / "Videos" / "Organized", "--destination", "-d", help="Output root folder."),
-    folder_template: str = typer.Option("{date:%Y/%m}", help="Folder template including date placeholders."),
+    folder_template: str = typer.Option("{tag_event_or_topic}", help="Folder template including subject/topic placeholders."),
     filename_template: str = typer.Option("{name}_{resolution}", help="Filename template including metadata placeholders."),
     copy: bool = typer.Option(False, help="Copy files instead of moving them."),
     dry_run: bool = typer.Option(False, help="Only preview planned moves/copies."),
