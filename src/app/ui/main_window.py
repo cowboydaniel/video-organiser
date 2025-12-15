@@ -123,9 +123,14 @@ class AnalysisWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def run(self) -> None:
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
+            logger.info("Worker thread started")
             # Emit initial progress
             self.progress.emit("Initializing analysis pipeline...", 0.0)
+            logger.info("Progress signal emitted")
 
             pipeline = ProcessingPipeline(
                 transcription_config=self.config, scene_interval=self.scene_interval
@@ -139,6 +144,7 @@ class AnalysisWorker(QtCore.QObject):
         except Exception as exc:  # pragma: no cover - UI surface
             import traceback
             error_details = f"{str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
+            logger.error("Worker failed: %s", error_details)
             self.failed.emit(error_details)
 
 

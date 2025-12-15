@@ -84,9 +84,12 @@ class TranscriptionService:
                 "Whisper is not installed. Install `openai-whisper` or configure whisper.cpp for transcription."
             )
 
+        logger.info("Loading Whisper model '%s' on device '%s'...", self.config.model_size, self.config.device)
+        logger.info("(First-time model download may take several minutes)")
         whisper = importlib.import_module("whisper")
         device = resolve_device(self.config.device)
         self._model = whisper.load_model(self.config.model_size, device=device)
+        logger.info("Whisper model loaded successfully")
         return self._model
 
     def _chunk_audio(self, audio_path: Path, duration: float | None) -> list[Tuple[Path, float]]:
