@@ -9,7 +9,7 @@ import tempfile
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence, Tuple
+from typing import Callable, Iterable, Sequence, Tuple
 
 from .pipeline import TranscriptSegment
 from .utils import resolve_device
@@ -44,8 +44,17 @@ class TranscriptionService:
         self.config = config or TranscriptionConfig()
         self._model = None
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
-        """Transcribe ``audio_path`` into time-aligned segments."""
+    def transcribe(
+        self,
+        audio_path: Path,
+        *,
+        progress_callback: Callable[[str, float], None] | None = None,
+    ) -> TranscriptionResult:
+        """Transcribe ``audio_path`` into time-aligned segments.
+
+        ``progress_callback`` accepts ``(message: str, fraction: float)`` to report
+        progress within the transcription stage.
+        """
 
         model = self._load_model()
         duration = self._probe_duration(audio_path)
@@ -54,7 +63,13 @@ class TranscriptionService:
         all_segments: list[TranscriptSegment] = []
         detected_language: str | None = None
 
-        for chunk_path, offset in chunks:
+        total_chunks = len(chunks)
+        for index, (chunk_path, offset) in enumerate(chunks):
+            if progress_callback:
+                progress_callback(
+                    f"Transcribing chunk {index + 1}/{total_chunks} (offset {int(offset)}s)",
+                    index / max(total_chunks, 1),
+                )
             try:
                 result = model.transcribe(
                     str(chunk_path),
@@ -69,6 +84,12 @@ class TranscriptionService:
                 detected_language = detected_language or result.get("language")
             language_tag = detected_language if self.config.auto_detect_language else None
             all_segments.extend(self._parse_segments(result.get("segments", []), offset, language_tag))
+
+            if progress_callback:
+                progress_callback(
+                    f"Finished chunk {index + 1}/{total_chunks}",
+                    (index + 1) / max(total_chunks, 1),
+                )
 
         return TranscriptionResult(segments=all_segments, detected_language=detected_language)
 
