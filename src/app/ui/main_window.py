@@ -163,7 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rule_group = QtWidgets.QGroupBox("Rules")
         rule_layout = QtWidgets.QGridLayout(rule_group)
         self.output_input = QtWidgets.QLineEdit(str(Path.home() / "Videos" / "Organized"))
-        self.folder_template_input = QtWidgets.QLineEdit("{date:%Y/%m}")
+        self.folder_template_input = QtWidgets.QLineEdit("{tag_event_or_topic}")
         self.filename_template_input = QtWidgets.QLineEdit("{name}_{resolution}")
         self.tags_input = QtWidgets.QLineEdit()
         self.tags_input.setPlaceholderText("project=demo, location=home")
@@ -506,7 +506,7 @@ class MainWindow(QtWidgets.QMainWindow):
         destination_root = Path(self.output_input.text()).expanduser()
         rule_engine = RuleEngine(
             destination_root=destination_root,
-            folder_template=self.folder_template_input.text() or "{date:%Y/%m}",
+            folder_template=self.folder_template_input.text() or "{tag_event_or_topic}",
             filename_template=self.filename_template_input.text() or "{name}_{resolution}",
         )
         return Organizer(rule_engine=rule_engine, metadata_reader=self.metadata_reader)

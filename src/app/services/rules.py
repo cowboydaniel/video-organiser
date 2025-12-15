@@ -103,7 +103,7 @@ class RuleEngine:
     def __init__(
         self,
         destination_root: Path,
-        folder_template: str = "{date:%Y/%m}",
+        folder_template: str = "{tag_event_or_topic}",
         filename_template: str = "{name}_{resolution}",
     ) -> None:
         self.destination_root = destination_root

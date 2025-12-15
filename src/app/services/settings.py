@@ -13,7 +13,7 @@ class RulePresets:
     """Reusable rule configuration preferences."""
 
     destination_root: str = str(Path.home() / "Videos" / "Organized")
-    folder_template: str = "{date:%Y/%m}"
+    folder_template: str = "{tag_event_or_topic}"
     filename_template: str = "{name}_{resolution}"
 
 
