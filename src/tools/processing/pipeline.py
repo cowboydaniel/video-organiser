@@ -106,6 +106,11 @@ class ProcessingPipeline:
         from .vision import media_signature
 
         def report(message: str, progress: float | None = None) -> None:
+            if progress is not None:
+                logger.info("[%.0f%%] %s", max(0.0, min(progress, 1.0)) * 100, message)
+            else:
+                logger.info(message)
+
             if progress_callback:
                 progress_callback(message, progress)
 
