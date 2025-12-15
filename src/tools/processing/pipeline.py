@@ -106,6 +106,11 @@ class ProcessingPipeline:
         from .vision import media_signature
 
         def report(message: str, progress: float | None = None) -> None:
+            if progress is not None:
+                logger.info("[%.0f%%] %s", max(0.0, min(progress, 1.0)) * 100, message)
+            else:
+                logger.info(message)
+
             if progress_callback:
                 progress_callback(message, progress)
 
@@ -120,7 +125,7 @@ class ProcessingPipeline:
         normalized_path = video_path.expanduser().resolve()
         checksum = media_signature(normalized_path)
         cached_entry = self.metadata_cache.get(checksum)
-        artifacts_dir = self._prepare_artifacts_dir(normalized_path)
+        artifacts_dir = self._prepare_artifacts_dir(normalized_path, checksum)
 
         report("Extracting audio track", step_size)
         audio_path = extract_audio_track(
@@ -129,7 +134,12 @@ class ProcessingPipeline:
         transcript = cached_entry.transcript if cached_entry and cached_entry.transcript else None
         if transcript is None:
             report("Transcribing audio", step_size * 2)
-            transcript = self._transcribe_audio(audio_path)
+            transcript = self._transcribe_audio(
+                audio_path,
+                progress_callback=progress_callback,
+                stage_start=step_size * 2,
+                stage_span=step_size,
+            )
             self.metadata_cache.store_transcript(checksum, transcript)
         else:
             logger.info("Using cached transcript for %s", normalized_path)
@@ -166,17 +176,40 @@ class ProcessingPipeline:
             artifacts_dir=artifacts_dir,
         )
 
-    def _prepare_artifacts_dir(self, video_path: Path) -> Path:
+    def _prepare_artifacts_dir(self, video_path: Path, checksum: str | None = None) -> Path:
+        """Create a stable, collision-resistant artifacts folder for a video."""
+
         stem = video_path.stem.replace(" ", "_")
-        target = self.cache_root / f"processing_{stem}"
+        # Include a short hash fragment to differentiate files that share a name but
+        # live in different directories (or have been modified).
+        suffix = f"_{checksum[:8]}" if checksum else ""
+        target = self.cache_root / f"processing_{stem}{suffix}"
         target.mkdir(parents=True, exist_ok=True)
         return target
 
-    def _transcribe_audio(self, audio_path: Path) -> list[TranscriptSegment]:
+    def _transcribe_audio(
+        self,
+        audio_path: Path,
+        *,
+        progress_callback: Callable[[str, float | None], None] | None = None,
+        stage_start: float | None = None,
+        stage_span: float | None = None,
+    ) -> list[TranscriptSegment]:
         """Transcribe audio into segments using the configured backend."""
+
+        stage_start = stage_start or 0.0
+        stage_span = stage_span or 0.0
+
+        def _report_transcription_progress(message: str, fraction: float) -> None:
+            progress = stage_start + (stage_span * max(0.0, min(fraction, 1.0)))
+            if progress_callback:
+                progress_callback(message, progress)
+
         try:
             result = retry_with_backoff(
-                lambda: self.transcriber.transcribe(audio_path),
+                lambda: self.transcriber.transcribe(
+                    audio_path, progress_callback=_report_transcription_progress
+                ),
                 attempts=3,
                 base_delay=1.0,
                 logger=logger,

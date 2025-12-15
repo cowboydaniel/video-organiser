@@ -22,7 +22,11 @@ class StubTranscriber:
         self.config = TranscriptionConfig()
         self.transcript_text = transcript_text
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:  # pragma: no cover - simple stub
+    def transcribe(
+        self, audio_path: Path, *, progress_callback=None
+    ) -> TranscriptionResult:  # pragma: no cover - simple stub
+        if progress_callback:
+            progress_callback("Transcribing stub chunk", 0.5)
         segment = TranscriptSegment(
             start=0.0,
             end=5.0,
