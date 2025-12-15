@@ -619,7 +619,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._analysis_thread = thread
         self._start_progress(100)
         self.analyze_button.setEnabled(False)
+        logger.info("Starting worker thread...")
         thread.start()
+        logger.info(f"Thread started: isRunning={thread.isRunning()}")
 
     def _on_analysis_progress(self, message: str, progress: float) -> None:
         self.status_label.setText(message)
