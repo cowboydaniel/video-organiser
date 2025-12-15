@@ -1,6 +1,7 @@
 """Application main window and supporting models."""
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,8 @@ from ..services.organizer import Organizer
 from ..services.rules import RuleEngine
 from ..services.settings import SettingsManager
 from tools.processing import AnalysisResult, ProcessingPipeline, TranscriptionConfig
+
+logger = logging.getLogger(__name__)
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".flv", ".wmv"}
@@ -291,9 +294,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress_bar.setMaximum(1)
         self.progress_bar.setValue(0)
 
+        # Log viewer for showing analysis progress and events
+        log_group = QtWidgets.QGroupBox("Activity Log")
+        log_layout = QtWidgets.QVBoxLayout(log_group)
+        self.log_viewer = QtWidgets.QTextEdit()
+        self.log_viewer.setReadOnly(True)
+        self.log_viewer.setMaximumHeight(150)
+        self.log_viewer.setStyleSheet("font-family: monospace; font-size: 10pt;")
+        log_layout.addWidget(self.log_viewer)
+
         bottom_layout = QtWidgets.QVBoxLayout()
         bottom_layout.addLayout(actions_layout)
         bottom_layout.addWidget(self.progress_bar)
+        bottom_layout.addWidget(log_group)
 
         main_layout.addLayout(controls_layout)
         main_layout.addWidget(rule_group)
@@ -327,6 +340,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _select_directory(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Select video directory", self.directory_input.text())
         if directory:
+            logger.info(f"Selected directory: {directory}")
             self.directory_input.setText(directory)
             self.settings_manager.update_last_directory(Path(directory))
             self._load_videos()
@@ -337,6 +351,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Directory not found", "Please select a valid directory containing video files.")
             return
 
+        logger.info(f"Loading videos from: {directory}")
         self.settings_manager.update_last_directory(directory)
         self._analysis_results.clear()
         self._analysis_overrides.clear()
@@ -346,6 +361,7 @@ class MainWindow(QtWidgets.QMainWindow):
             for path in directory.iterdir()
             if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
         ]
+        logger.info(f"Found {len(video_files)} video file(s)")
         self.model.set_items(video_files)
         if video_files:
             self.table_view.selectRow(0)
@@ -565,6 +581,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         item = items[0]
+        logger.info("=" * 70)
+        logger.info(f"Starting analysis for: {item.path.name}")
+        logger.info("=" * 70)
+
         config = TranscriptionConfig(
             model_size=self.model_size_combo.currentText(),
             device=self.device_combo.currentText(),
@@ -574,6 +594,8 @@ class MainWindow(QtWidgets.QMainWindow):
             diarization=self.diarization_checkbox.isChecked(),
             auto_detect_language=self.language_detection_checkbox.isChecked(),
         )
+        logger.info(f"Configuration: model={config.model_size}, device={config.device}")
+
         worker = AnalysisWorker(
             item.path, config, scene_interval=float(self.scene_interval_spin.value())
         )
@@ -599,6 +621,10 @@ class MainWindow(QtWidgets.QMainWindow):
         value = int(progress * maximum) if progress > 0 else min(self.progress_bar.value() + 5, maximum)
         self.progress_bar.setValue(value)
 
+        # Log progress to console
+        percentage = int(progress * 100) if progress > 0 else (value * 100 // maximum)
+        logger.info(f"[{percentage:3d}%] {message}")
+
     def _on_analysis_finished(self, path: Path, result: AnalysisResult) -> None:
         self._finish_progress()
         self.analyze_button.setEnabled(True)
@@ -610,6 +636,12 @@ class MainWindow(QtWidgets.QMainWindow):
             "event": result.summary.event_or_topic,
         }
         self._display_analysis(path)
+        logger.info("=" * 70)
+        logger.info("ANALYSIS COMPLETE")
+        logger.info(f"Title: {result.summary.title}")
+        logger.info(f"Folder suggestion: {result.summary.folder_suggestion}")
+        logger.info(f"Event/Topic: {result.summary.event_or_topic}")
+        logger.info("=" * 70)
         QtWidgets.QMessageBox.information(
             self,
             "Analysis complete",
@@ -620,6 +652,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._finish_progress()
         self.analyze_button.setEnabled(True)
         self._analysis_thread = None
+
+        logger.error("=" * 70)
+        logger.error("ANALYSIS FAILED")
+        logger.error(f"Error: {error}")
+        logger.error("=" * 70)
 
         # Check if the error is likely due to missing ffmpeg
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
