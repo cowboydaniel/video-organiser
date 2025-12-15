@@ -78,15 +78,24 @@ class ProcessingPipeline:
         from .transcription import TranscriptionConfig, TranscriptionService
         from .vision import VisionAnalyzer
 
+        logger.info("Initializing processing pipeline...")
         default_cache_root = ensure_config_dir() / "processing_artifacts"
         self.cache_root = cache_root or default_cache_root
         self.scene_interval = scene_interval
+
+        logger.info("Loading transcription service (this may take a minute on first run)...")
         self.transcriber = TranscriptionService(transcription_config)
+        logger.info("Transcription service loaded")
+
+        logger.info("Loading vision analyzer...")
         self.vision = VisionAnalyzer(
             scene_interval=scene_interval, cache_root=self.cache_root, device=vision_device
         )
+        logger.info("Vision analyzer loaded")
+
         self.summarizer = Summarizer()
         self.metadata_cache = metadata_cache or ProcessingCache()
+        logger.info("Processing pipeline ready")
 
     def process(
         self,
